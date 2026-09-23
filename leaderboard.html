@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Herzog Dispatch — Live Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{--gold:#FFD100;--smoke:#A7A9AC;--mid:#6D6E71;--navy-dark:#0F1F33;--border:#6E7073;--off-white:#FAFAFA}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:#000;color:var(--off-white);font-family:Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+header{flex:0 0 auto;height:76px;border-bottom:3px solid var(--gold);display:flex;align-items:center;gap:1.1rem;padding:0 1.6rem}
+.logo{font-family:Oswald;font-weight:700;font-size:2rem;color:var(--gold);letter-spacing:.06em}
+.bar{width:1px;height:34px;background:#58595B}
+.app{font-size:.92rem;letter-spacing:.16em;color:var(--smoke);text-transform:uppercase;font-weight:500}
+.live{margin-left:auto;display:flex;align-items:center;gap:.6rem;font-size:.82rem;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--smoke)}
+.dot{width:10px;height:10px;border-radius:50%;background:#35D07F;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+main{flex:1 1 auto;display:grid;grid-template-columns:330px 1fr 1fr;gap:1.4rem;padding:1.4rem 1.6rem;min-height:0}
+.col{min-height:0;display:flex;flex-direction:column}
+.card{background:var(--navy-dark);border:1px solid var(--border);border-radius:8px;padding:1.2rem 1.3rem;
+  display:flex;flex-direction:column;min-height:0;flex:1}
+h2{font-family:Oswald;font-weight:600;font-size:1.25rem;letter-spacing:.08em;text-transform:uppercase;margin:0 0 .2rem}
+.sub{font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--mid);margin-bottom:.9rem}
+.rule{height:3px;background:var(--gold);width:64px;margin:.5rem 0 1rem}
+
+#qrbox{background:#fff;padding:14px;border-radius:8px;display:inline-block;line-height:0}
+.scan{font-family:Oswald;font-weight:700;font-size:1.9rem;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--gold);margin:1.1rem 0 .3rem;line-height:1.05}
+.scanp{font-size:.88rem;color:var(--smoke);line-height:1.5}
+
+ol{list-style:none;margin:0;padding:0;overflow:hidden;flex:1}
+ol li{display:flex;align-items:baseline;gap:.8rem;padding:.55rem 0;border-bottom:1px solid #22303F}
+ol li .n{font-family:Oswald;font-size:1.05rem;color:var(--mid);width:2rem;flex:0 0 auto}
+ol li .who{font-family:Oswald;font-weight:500;font-size:1.35rem;letter-spacing:.03em;flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ol li .where{font-size:.78rem;color:var(--mid);flex:0 0 auto;max-width:11rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ol li .pts{font-family:Oswald;font-weight:600;font-size:1.45rem;color:var(--gold);flex:0 0 auto}
+ol li:first-child .who,ol li:first-child .pts{color:var(--gold)}
+.empty{color:var(--mid);font-size:.9rem;padding:1rem 0}
+
+footer{flex:0 0 auto;height:46px;background:#08090A;border-top:1px solid #1E2126;
+  display:flex;align-items:center;gap:1.4rem;padding:0 1.6rem;font-size:.8rem;color:var(--mid)}
+footer b{font-family:Oswald;color:var(--gold);font-size:1rem;letter-spacing:.04em}
+footer .right{margin-left:auto}
+@media (max-width:1100px){main{grid-template-columns:1fr 1fr}.col.qr{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">HERZOG</span><span class="bar"></span>
+  <span class="app">Dispatch — Live Board</span>
+  <span class="live"><span class="dot"></span><span id="status">Updating</span></span>
+</header>
+
+<main>
+  <div class="col qr">
+    <div class="card" style="align-items:flex-start">
+      <div id="qrbox"></div>
+      <div class="scan">Scan to play</div>
+      <p class="scanp">Route the trains. Don't crash. Your score posts to this board under your school.</p>
+      <div class="rule"></div>
+      <p class="scanp" style="font-size:.8rem">Software that keeps trains where they belong is a real job here. This is a small version of it.</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card">
+      <h2>Top dispatchers</h2>
+      <div class="sub">All schools</div>
+      <ol id="overall"><li class="empty">Waiting for the first run…</li></ol>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card">
+      <h2 id="schoolName">By school</h2>
+      <div class="sub" id="schoolSub">Rotating</div>
+      <ol id="bySchool"><li class="empty">Waiting for the first run…</li></ol>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <span>Dispatchers today <b id="count">0</b></span>
+  <span>Schools represented <b id="schoolCount">0</b></span>
+  <span class="right" id="clock"></span>
+</footer>
+
+<script>
+/* ============================================================
+   SET THESE BEFORE THE EVENT
+   API_URL  = your Apps Script /exec URL
+   GAME_URL = the public URL of index.html (what the QR points to)
+   ============================================================ */
+var API_URL  = "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE";
+var GAME_URL = "PASTE_THE_PUBLIC_URL_OF_THE_GAME_HERE";
+
+(function(){
+"use strict";
+var POLL_MS=8000, ROTATE_MS=9000;
+var schools=[], rotateIdx=0;
+
+new QRCode(document.getElementById("qrbox"),{
+  text:GAME_URL, width:280, height:280,
+  colorDark:"#000000", colorLight:"#ffffff",
+  correctLevel:QRCode.CorrectLevel.M
+});
+
+function esc(s){var d=document.createElement("div");d.textContent=s==null?"":s;return d.innerHTML;}
+
+function rowsHtml(rows,showSchool){
+  if(!rows||!rows.length) return '<li class="empty">No runs yet.</li>';
+  return rows.map(function(r,i){
+    return '<li><span class="n">'+(i+1)+'</span>'+
+           '<span class="who">'+esc(r.name)+'</span>'+
+           (showSchool?'<span class="where">'+esc(r.school)+'</span>':'')+
+           '<span class="pts">'+Number(r.score).toLocaleString()+'</span></li>';
+  }).join("");
+}
+
+function paintSchool(){
+  if(!schools.length){
+    document.getElementById("schoolName").textContent="By school";
+    document.getElementById("schoolSub").textContent="Waiting for scores";
+    document.getElementById("bySchool").innerHTML='<li class="empty">No schools yet.</li>';
+    return;
+  }
+  var s=schools[rotateIdx%schools.length];
+  document.getElementById("schoolName").textContent=s.school;
+  document.getElementById("schoolSub").textContent=
+    s.players+" player"+(s.players===1?"":"s")+" · best "+Number(s.best).toLocaleString();
+  document.getElementById("bySchool").innerHTML=rowsHtml(s.top,false);
+}
+
+function tick(){
+  if(!API_URL||API_URL.indexOf("PASTE_")===0){
+    document.getElementById("status").textContent="Not connected";
+    return;
+  }
+  fetch(API_URL+"?action=board&t="+Date.now())
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!d||!d.ok) throw 0;
+      document.getElementById("status").textContent="Live";
+      document.getElementById("overall").innerHTML=rowsHtml(d.board.overall,true);
+      document.getElementById("count").textContent=d.board.players;
+      schools=d.board.schools||[];
+      document.getElementById("schoolCount").textContent=schools.length;
+      paintSchool();
+    })
+    .catch(function(){ document.getElementById("status").textContent="Retrying"; });
+}
+
+function clock(){
+  var n=new Date();
+  document.getElementById("clock").textContent=
+    n.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
+}
+
+tick(); clock();
+setInterval(tick,POLL_MS);
+setInterval(clock,20000);
+setInterval(function(){ rotateIdx++; paintSchool(); },ROTATE_MS);
+})();
+</script>
+</body>
+</html>
