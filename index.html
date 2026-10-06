@@ -64,11 +64,26 @@ h2{font-family:Oswald;font-weight:600;font-size:1.25rem;letter-spacing:.06em;tex
 .rule{height:3px;background:var(--gold);width:74px;margin:.8rem 0 1rem}
 p{color:var(--smoke);font-size:.9rem;line-height:1.5}
 label{display:block;font-size:.62rem;letter-spacing:.13em;text-transform:uppercase;color:var(--smoke);margin:1rem 0 .4rem}
-input,select{width:100%;background:#0B0E11;color:var(--off-white);border:1px solid #33383E;
+input{width:100%;background:#0B0E11;color:var(--off-white);border:1px solid #33383E;
   border-radius:6px;padding:.75rem .7rem;font-size:1rem;font-family:Roboto;appearance:none}
-select{background-image:linear-gradient(45deg,transparent 50%,var(--smoke) 50%),linear-gradient(135deg,var(--smoke) 50%,transparent 50%);
-  background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
-input:focus,select:focus{border-color:var(--gold);outline:none}
+input:focus{border-color:var(--gold);outline:none}
+.combo{position:relative}
+.combo ul{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;margin:0;padding:.25rem 0;list-style:none;
+  background:#0B0E11;border:1px solid var(--gold);border-radius:6px;max-height:min(15rem,38vh);overflow-y:auto;
+  box-shadow:0 12px 28px rgba(0,0,0,.7)}
+.combo li{padding:.72rem .75rem;font-size:.95rem;cursor:pointer;line-height:1.25}
+.combo li.active{background:#1A1F26;color:var(--gold)}
+.combo li.note{color:var(--smoke);font-size:.8rem;cursor:default}
+.hint{font-size:.72rem;color:var(--mid);margin-top:.4rem}
+.fh{margin-top:1.4rem;font-size:1rem}
+ol.final{list-style:none;margin:0;padding:0}
+ol.final li{display:flex;align-items:baseline;gap:.6rem;padding:.5rem 0;border-bottom:1px solid #1C2530;font-size:.9rem}
+ol.final .n{font-family:Oswald;color:var(--mid);width:1.4rem;flex:0 0 auto}
+ol.final .who{font-family:Oswald;font-weight:500;letter-spacing:.03em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ol.final .where{color:var(--mid);font-size:.72rem;flex:0 1 auto;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ol.final .pts{font-family:Oswald;font-weight:600;color:var(--gold);flex:0 0 auto}
+ol.final li.muted{color:var(--mid);display:block}
+body.closed #pad{display:none}
 .cta{width:100%;font-family:Oswald;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
   background:var(--gold);color:#000;border:none;border-radius:6px;padding:.9rem;font-size:1.05rem;
   margin-top:1.3rem;cursor:pointer}
@@ -112,10 +127,27 @@ input:focus,select:focus{border-color:var(--gold);outline:none}
     <label for="name">Your name</label>
     <input id="name" maxlength="14" autocomplete="off" autocapitalize="words" placeholder="First name + last initial">
     <label for="school">Your school</label>
-    <select id="school"><option value="">Loading…</option></select>
-    <input id="otherSchool" placeholder="Type your school" style="display:none;margin-top:.5rem" maxlength="60">
+    <div class="combo">
+      <input id="school" maxlength="60" autocomplete="off" autocapitalize="words" spellcheck="false"
+        placeholder="Start typing your school" role="combobox" aria-autocomplete="list"
+        aria-expanded="false" aria-controls="schoolList">
+      <ul id="schoolList" role="listbox" aria-label="Schools" hidden></ul>
+    </div>
+    <div class="hint">Not in the list? Type the full name &mdash; that works too.</div>
     <div class="err" id="introErr"></div>
     <button class="cta" id="go">Start shift</button>
+  </section>
+
+  <!-- EVENT OVER -->
+  <section class="screen" id="s-closed">
+    <h1>That's a wrap</h1>
+    <div class="rule"></div>
+    <p>The event is over and the leaderboard is final. Thanks for playing Herzog Dispatch.</p>
+    <div id="finalMine"></div>
+    <h2 class="fh">Top dispatchers</h2>
+    <ol class="final" id="finalOverall"><li class="muted">Loading final scores…</li></ol>
+    <h2 class="fh">Top schools</h2>
+    <ol class="final" id="finalSchools"></ol>
   </section>
 
   <!-- RESULTS -->
@@ -151,7 +183,8 @@ input:focus,select:focus{border-color:var(--gold);outline:none}
    ============================================================ */
 var API_URL = "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE";
 
-var FALLBACK_SCHOOLS = ["Other / not listed"];
+/* Must match EVENT_ID in Code.gs. Change both for the next event. */
+var EVENT_ID = "dispatch-2026";
 
 (function(){
 "use strict";
@@ -553,40 +586,360 @@ cv.addEventListener("pointerdown",function(e){
   if(navigator.vibrate) try{navigator.vibrate(12);}catch(_e){}
 });
 
-/* ---------- schools ---------- */
-function loadSchools(){
-  var sel=$("school");
-  function fill(list){
-    sel.innerHTML="";
-    var ph=document.createElement("option");
-    ph.value="";ph.textContent="Choose your school…";sel.appendChild(ph);
-    list.forEach(function(s){
-      var o=document.createElement("option");o.value=s;o.textContent=s;sel.appendChild(o);
-    });
-    var o=document.createElement("option");o.value="__other";o.textContent="Other / not listed";sel.appendChild(o);
+/* ---------- network ---------- */
+function apiReady(){ return !!API_URL&&API_URL.indexOf("PASTE_")!==0; }
+
+/* POST bodies go as plain text so the browser sends them without a CORS
+   preflight, which Apps Script can't answer. */
+function api(method,params,timeoutMs){
+  var url=API_URL, opts={method:method,cache:"no-store"};
+  if(method==="GET"){
+    url+="?"+Object.keys(params).map(function(k){return k+"="+encodeURIComponent(params[k]);}).join("&")+"&t="+Date.now();
+  }else{
+    opts.body=JSON.stringify(params);
   }
-  fill(FALLBACK_SCHOOLS);
-  if(!API_URL||API_URL.indexOf("PASTE_")===0) return;
-  fetch(API_URL+"?action=config").then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok&&d.schools&&d.schools.length) fill(d.schools);
-  }).catch(function(){});
+  var ctrl=typeof AbortController!=="undefined"?new AbortController():null, timer=null;
+  if(ctrl){ opts.signal=ctrl.signal; timer=setTimeout(function(){ctrl.abort();},timeoutMs||15000); }
+  return fetch(url,opts)
+    .then(function(r){return r.json();})
+    .then(function(d){
+      clearTimeout(timer);
+      if(!d||typeof d!=="object") throw new Error("bad response");
+      return d;
+    },function(err){ clearTimeout(timer); throw err; });
 }
-$("school").addEventListener("change",function(){
-  $("otherSchool").style.display=this.value==="__other"?"block":"none";
+
+/* localStorage can be missing or throw (private mode, blocked site data).
+   Fall back to memory: scores still queue, they just don't survive a reload. */
+var store=(function(){
+  var mem={}, ls=false;
+  try{ localStorage.setItem("__hd","1"); localStorage.removeItem("__hd"); ls=true; }catch(e){}
+  return {
+    get:function(k){
+      if(ls) try{ return localStorage.getItem(k); }catch(e){}
+      return Object.prototype.hasOwnProperty.call(mem,k)?mem[k]:null;
+    },
+    set:function(k,v){ mem[k]=v; if(ls) try{ localStorage.setItem(k,v); }catch(e){} }
+  };
+})();
+
+function newId(){
+  if(window.crypto&&crypto.randomUUID) return crypto.randomUUID();
+  if(window.crypto&&crypto.getRandomValues){
+    var a=new Uint32Array(4); crypto.getRandomValues(a);
+    return Array.prototype.map.call(a,function(n){return ("0000000"+n.toString(16)).slice(-8);}).join("");
+  }
+  var s=""; for(var i=0;i<4;i++) s+=("0000000"+Math.floor(Math.random()*4294967296).toString(16)).slice(-8);
+  return s;
+}
+
+/* ---------- score outbox ----------
+   Every finished run is saved on the phone first, then sent. It leaves the
+   outbox only when the server answers for it, so a busy backend or a dead
+   signal costs a delay, not a score. Retries are spaced out (exponential
+   backoff, full jitter) and a phone never has more than one request in
+   flight, so a crowd of retrying phones can't pile onto a struggling server.
+   The id makes a retry safe: the server records each id once. */
+var OUTBOX_KEY="hd-outbox-"+EVENT_ID, OUTBOX_MAX_AGE=12*3600*1000;
+var outbox=loadOutbox(), inflight=false, pumpTimer=null, fails=0, currentId=null;
+
+function loadOutbox(){
+  try{ var a=JSON.parse(store.get(OUTBOX_KEY)||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; }
+}
+function saveOutbox(){ store.set(OUTBOX_KEY,JSON.stringify(outbox)); }
+
+function enqueue(item){
+  outbox.push(item); saveOutbox();
+  if(!pumpTimer) pump();   // already backing off? wait our turn
+}
+function schedulePump(ms){
+  if(pumpTimer) clearTimeout(pumpTimer);
+  pumpTimer=setTimeout(function(){ pumpTimer=null; pump(); },ms);
+}
+function backoff(){
+  fails++;
+  if(fails>=5) return 60000+Math.random()*60000;                  // stop hammering; check back every minute or two
+  return 500+Math.random()*Math.min(60000,2000*Math.pow(2,fails-1)); // 0-2s, 0-4s, 0-8s, 0-16s
+}
+function pump(){
+  if(inflight||!apiReady()) return;
+  var now=Date.now();
+  var fresh=outbox.filter(function(it){ return it.event===EVENT_ID&&now-it.t<OUTBOX_MAX_AGE; });
+  if(fresh.length!==outbox.length){ outbox=fresh; saveOutbox(); }
+  if(!outbox.length) return;
+
+  var it=outbox[0];
+  inflight=true;
+  api("POST",{action:"submit",event:EVENT_ID,id:it.id,name:it.name,school:it.school,score:it.score,delivered:it.delivered},15000)
+    .then(function(d){
+      inflight=false;
+      if(d.retry){ onRetry(it); schedulePump(backoff()); return; }
+      fails=0;
+      outbox=outbox.filter(function(x){return x.id!==it.id;}); saveOutbox();
+      onResult(it,d);
+      if(outbox.length) schedulePump(300);
+    },function(){
+      inflight=false; onRetry(it); schedulePump(backoff());
+    });
+}
+window.addEventListener("online",function(){ fails=0; if(!inflight) schedulePump(0); });
+
+function onRetry(it){
+  if(it.id!==currentId) return;
+  $("rankbox").innerHTML=row("Leaderboard's busy &mdash; still sending. Your score is saved on this phone and will post on its own.");
+}
+function onResult(it,d){
+  setOpen(d.open);
+  if(it.id!==currentId) return;
+  var box=$("rankbox");
+  if(d.ok){
+    box.innerHTML=
+      '<div><span>Rank at '+esc(d.school)+'</span><b>#'+d.schoolRank+'</b></div>'+
+      '<div><span>Rank overall</span><b>#'+d.rank+'</b></div>'+
+      '<div><span>Dispatchers today</span><b>'+d.total+'</b></div>';
+  }else if(d.error==="bad_name"){
+    box.innerHTML=row("That name didn't post. Tap &ldquo;Not me&rdquo; and try your real one.");
+  }else if(d.error==="bad_school"){
+    box.innerHTML=row("That school name didn't post. Tap &ldquo;Not me&rdquo; and check it.");
+  }else if(d.error==="closed"){
+    box.innerHTML=row("The event ended before this score arrived.");
+  }else if(d.error==="wrong_event"){
+    box.innerHTML=row("This page is out of date. Reload to play.");
+  }else{
+    box.innerHTML=row("Couldn't post this score.");
+  }
+}
+function row(html){ return "<div><span>"+html+"</span></div>"; }
+
+/* ---------- event open / closed ----------
+   Apps Script can't push, so pages check in at moments that already happen
+   (load, Start, every score posted, coming back to the tab) plus a slow,
+   randomized background poll. Never during a run. */
+var eventOpen=true, lastStatusAt=0;
+
+function setOpen(open){
+  if(typeof open!=="boolean"||open===eventOpen) return;
+  eventOpen=open;
+  if(!open){
+    if(state==="intro") showClosed();
+    else if(state==="over") paintEndButtons();
+    // mid-run: let them finish; the score posts inside the grace window
+  }else if(state==="closed"){
+    document.body.classList.remove("closed");
+    state="intro"; show("s-intro");
+  }else if(state==="over"){
+    paintEndButtons();
+  }
+}
+function checkStatus(){
+  if(!apiReady()||state==="run") return;
+  var now=Date.now();
+  if(now-lastStatusAt<20000) return;
+  lastStatusAt=now;
+  if(state==="closed"){ loadFinal(); return; }
+  api("GET",{action:"status"},10000).then(function(d){ if(d.ok) setOpen(d.open); }).catch(function(){});
+}
+function schedulePoll(){
+  setTimeout(function(){
+    if(document.visibilityState!=="hidden") checkStatus();
+    schedulePoll();
+  },60000+Math.random()*60000);
+}
+document.addEventListener("visibilitychange",function(){
+  if(document.visibilityState==="visible") checkStatus();
 });
 
-$("go").addEventListener("click",function(){
-  var n=$("name").value.trim();
-  var s=$("school").value;
-  if(s==="__other") s=$("otherSchool").value.trim();
-  if(n.length<2) return ($("introErr").textContent="Put your name in first.");
-  if(!s) return ($("introErr").textContent="Pick your school.");
+function showClosed(){
+  state="closed";
+  document.body.classList.add("closed");
+  show("s-closed");
+  loadFinal();
+}
+function loadFinal(){
+  if(!apiReady()) return;
+  lastStatusAt=Date.now();
+  api("GET",{action:"board"},15000).then(function(d){
+    if(!d.ok) return;
+    paintFinal(d.board);
+    setOpen(d.open);
+  }).catch(function(){});
+}
+function finalLi(n,who,where,pts){
+  return '<li><span class="n">'+n+'</span><span class="who">'+esc(who)+'</span>'+
+         (where?'<span class="where">'+esc(where)+'</span>':'')+
+         '<span class="pts">'+Number(pts).toLocaleString()+'</span></li>';
+}
+function paintFinal(b){
+  $("finalOverall").innerHTML=b.overall.length
+    ? b.overall.map(function(r,i){ return finalLi(i+1,r.name,r.school,r.score); }).join("")
+    : '<li class="muted">No scores were posted.</li>';
+  $("finalSchools").innerHTML=b.schools.slice(0,10).map(function(s,i){
+    return finalLi(i+1,s.school,s.players+" player"+(s.players===1?"":"s"),s.best);
+  }).join("");
+  var mine=null, want=player.school.toLowerCase();
+  for(var i=0;want&&i<b.schools.length;i++) if(b.schools[i].school.toLowerCase()===want) mine=b.schools[i];
+  $("finalMine").innerHTML=mine
+    ? '<h2 class="fh">'+esc(mine.school)+'</h2><ol class="final">'+
+      mine.top.map(function(r,i){ return finalLi(i+1,r.name,"",r.score); }).join("")+'</ol>'
+    : "";
+}
+
+/* ---------- school picker ----------
+   One box: type to search the list, or type a school that isn't on it. */
+var schools=[], matches=[], activeIdx=-1;
+var schoolEl=$("school"), listEl=$("schoolList");
+
+/* Keep in sync with schoolKey() in Code.gs. "Lincoln HS", "lincoln high" and
+   "Lincoln High School" all reduce to "lincoln". */
+var SCHOOL_FILLER={the:1,high:1,school:1,hs:1,senior:1,sr:1};
+function schoolKey(s){
+  var words=String(s||"").toLowerCase()
+    .replace(/&/g," and ")
+    .replace(/[^a-z0-9 ]/g," ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(function(w){ return w==="saint"?"st":w==="mount"?"mt":w; });
+  var kept=words.filter(function(w){ return !SCHOOL_FILLER[w]; });
+  return (kept.length?kept:words).join(" ");
+}
+
+function loadConfig(){
+  if(!apiReady()) return;
+  lastStatusAt=Date.now();
+  api("GET",{action:"config"},10000).then(function(d){
+    if(!d.ok) return;
+    schools=(d.schools||[]).slice().sort(function(a,b){ return a.localeCompare(b); });
+    if(document.activeElement===schoolEl) renderSchools();
+    setOpen(d.open);
+  }).catch(function(){});
+}
+
+function findSchools(q){
+  var raw=q.trim().toLowerCase(), k=schoolKey(q)||raw;
+  if(!raw) return schools.slice();
+  var hits=[];
+  schools.forEach(function(name){
+    var lower=name.toLowerCase(), sk=schoolKey(name), rank=-1;
+    if(lower.indexOf(raw)===0||sk.indexOf(k)===0) rank=0;                                  // starts with
+    else if((" "+lower).indexOf(" "+raw)!==-1||(" "+sk).indexOf(" "+k)!==-1) rank=1;         // a word starts with
+    else if(lower.indexOf(raw)!==-1||sk.indexOf(k)!==-1) rank=2;                           // anywhere
+    if(rank>=0) hits.push({name:name,rank:rank});
+  });
+  hits.sort(function(a,b){ return a.rank-b.rank||a.name.localeCompare(b.name); });
+  return hits.map(function(h){ return h.name; });
+}
+
+function openList(open){
+  listEl.hidden=!open;
+  schoolEl.setAttribute("aria-expanded",open?"true":"false");
+  if(!open){ activeIdx=-1; schoolEl.removeAttribute("aria-activedescendant"); }
+}
+function renderSchools(){
+  matches=findSchools(schoolEl.value).slice(0,50);
+  activeIdx=-1; schoolEl.removeAttribute("aria-activedescendant");
+  listEl.innerHTML="";
+  var typed=schoolEl.value.trim();
+  if(!matches.length){
+    if(!typed){ openList(false); return; }
+    var note=document.createElement("li");
+    note.className="note"; note.setAttribute("aria-disabled","true");
+    note.textContent="No match — “"+typed+"” will be added when you start.";
+    listEl.appendChild(note); openList(true);
+    return;
+  }
+  matches.forEach(function(name,i){
+    var li=document.createElement("li");
+    li.id="school-opt-"+i; li.setAttribute("role","option"); li.setAttribute("aria-selected","false");
+    li.dataset.i=i; li.textContent=name;
+    listEl.appendChild(li);
+  });
+  openList(true);
+}
+function setActive(i){
+  var items=listEl.querySelectorAll("[role=option]");
+  if(!items.length) return;
+  activeIdx=(i+items.length)%items.length;
+  for(var j=0;j<items.length;j++){
+    var on=j===activeIdx;
+    items[j].classList.toggle("active",on);
+    items[j].setAttribute("aria-selected",on?"true":"false");
+  }
+  schoolEl.setAttribute("aria-activedescendant",items[activeIdx].id);
+  items[activeIdx].scrollIntoView({block:"nearest"});
+}
+function pickSchool(i){
+  schoolEl.value=matches[i];
+  openList(false);
   $("introErr").textContent="";
-  player.name=n;player.school=s;
-  startRun();
+}
+function resolveSchool(typed){
+  var k=schoolKey(typed);
+  for(var i=0;i<schools.length;i++) if(schoolKey(schools[i])===k) return schools[i];
+  return typed;
+}
+
+schoolEl.addEventListener("input",renderSchools);
+schoolEl.addEventListener("focus",function(){
+  renderSchools();
+  // lift the box above the on-screen keyboard so the list has room
+  setTimeout(function(){ schoolEl.scrollIntoView({block:"center"}); },300);
 });
-$("again").addEventListener("click",startRun);
+schoolEl.addEventListener("blur",function(){ setTimeout(function(){ openList(false); },150); });
+schoolEl.addEventListener("keydown",function(e){
+  if(e.key==="ArrowDown"){ e.preventDefault(); if(listEl.hidden) renderSchools(); setActive(activeIdx+1); }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); setActive(activeIdx-1); }
+  else if(e.key==="Enter"){
+    if(!listEl.hidden&&activeIdx>=0){ e.preventDefault(); pickSchool(activeIdx); }
+    else openList(false);
+  }
+  else if(e.key==="Escape") openList(false);
+});
+// keep focus in the box while tapping the list, so blur doesn't close it first
+listEl.addEventListener("mousedown",function(e){ e.preventDefault(); });
+listEl.addEventListener("click",function(e){
+  var li=e.target.closest("[role=option]");
+  if(li) pickSchool(+li.dataset.i);
+});
+
+/* ---------- start / end ---------- */
+$("go").addEventListener("click",function(){
+  var btn=this, n=$("name").value.trim(), s=schoolEl.value.trim();
+  if(n.length<2) return ($("introErr").textContent="Put your name in first.");
+  if(s.length<2) return ($("introErr").textContent="Type or pick your school.");
+  $("introErr").textContent="";
+  openList(false);
+  s=resolveSchool(s);
+  if(!apiReady()) return begin(n,s);
+
+  function done(){ btn.disabled=false; btn.textContent="Start shift"; }
+  btn.disabled=true; btn.textContent="Checking…";
+  lastStatusAt=Date.now();
+  api("POST",{action:"start",event:EVENT_ID,name:n,school:s},8000).then(function(d){
+    done();
+    if(d.ok) return begin(d.name||n,d.school||s);
+    if(d.error==="closed") return setOpen(false);
+    if(d.error==="bad_name") return ($("introErr").textContent="That name won't post to the board. Try your real one.");
+    if(d.error==="bad_school") return ($("introErr").textContent="That school name won't post to the board. Check the spelling.");
+    if(d.error==="wrong_event") return ($("introErr").textContent="This page is out of date. Reload to play.");
+    begin(n,s);   // busy or a hiccup: play anyway, the score is checked again when it posts
+  },function(){
+    done();
+    begin(n,s);
+  });
+});
+function begin(n,s){
+  player.name=n; player.school=s;
+  $("name").value=n; schoolEl.value=s;
+  startRun();
+}
+
+$("again").addEventListener("click",function(){ if(eventOpen) startRun(); else showClosed(); });
 $("changeMe").addEventListener("click",function(){ show("s-intro"); state="intro"; });
+
+function paintEndButtons(){
+  $("again").textContent=eventOpen?"Play again":"See final scores";
+  $("changeMe").style.display=eventOpen?"":"none";
+}
 
 function startRun(){ reset(); state="run"; show(null); resize(); }
 
@@ -596,37 +949,18 @@ function end(reason){
   $("endWhy").textContent=reason;
   $("endScore").textContent=score.toLocaleString();
   $("endSub").textContent=delivered+" load"+(delivered===1?"":"s")+" delivered for "+player.school+".";
-  $("rankbox").innerHTML="<div><span>Sending score…</span></div>";
+  paintEndButtons();
   show("s-end");
-  submit();
+  if(!apiReady()){ $("rankbox").innerHTML=row("Leaderboard not connected yet."); return; }
+  $("rankbox").innerHTML=row("Saving your score&hellip;");
+  currentId=newId();
+  enqueue({id:currentId,event:EVENT_ID,name:player.name,school:player.school,
+           score:score,delivered:delivered,t:Date.now()});
 }
+function esc(s){var d=document.createElement("div");d.textContent=s==null?"":s;return d.innerHTML;}
 
-function submit(){
-  if(!API_URL||API_URL.indexOf("PASTE_")===0){
-    $("rankbox").innerHTML="<div><span>Leaderboard not connected yet.</span></div>";
-    return;
-  }
-  var q="?action=submit&name="+encodeURIComponent(player.name)
-       +"&school="+encodeURIComponent(player.school)
-       +"&score="+score+"&delivered="+delivered;
-  fetch(API_URL+q).then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok){
-      $("rankbox").innerHTML=
-        '<div><span>Rank at '+esc(d.school)+'</span><b>#'+d.schoolRank+'</b></div>'+
-        '<div><span>Rank overall</span><b>#'+d.rank+'</b></div>'+
-        '<div><span>Dispatchers today</span><b>'+d.total+'</b></div>';
-    }else if(d&&d.error==="bad_name"){
-      $("rankbox").innerHTML="<div><span>That name didn't post. Try your real one.</span></div>";
-    }else{
-      $("rankbox").innerHTML="<div><span>Couldn't reach the leaderboard.</span></div>";
-    }
-  }).catch(function(){
-    $("rankbox").innerHTML="<div><span>Couldn't reach the leaderboard.</span></div>";
-  });
-}
-function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}
-
-loadSchools(); reset(); resize();
+loadConfig(); schedulePoll(); pump();
+reset(); resize();
 requestAnimationFrame(frame);
 })();
 </script>

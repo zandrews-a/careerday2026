@@ -50,6 +50,32 @@ footer{flex:0 0 auto;height:46px;background:#08090A;border-top:1px solid #1E2126
   display:flex;align-items:center;gap:1.4rem;padding:0 1.6rem;font-size:.8rem;color:var(--mid)}
 footer b{font-family:Oswald;color:var(--gold);font-size:1rem;letter-spacing:.04em}
 footer .right{margin-left:auto}
+
+/* event over */
+.final-banner{display:none;flex:0 0 auto;background:var(--gold);color:#000;font-family:Oswald;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;font-size:1.15rem;padding:.55rem 1.6rem}
+body.closed .final-banner{display:block}
+body.closed .dot{animation:none;background:var(--gold)}
+body.closed #qrbox{display:none}
+
+/* staff panel */
+.logo{cursor:default;user-select:none}
+.admin{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:16px}
+.admin[hidden]{display:none}
+.panel{background:var(--navy-dark);border:1px solid var(--gold);border-radius:10px;padding:1.4rem 1.5rem;width:100%;max-width:360px}
+.panel label{display:block;font-size:.7rem;letter-spacing:.13em;text-transform:uppercase;color:var(--smoke);margin:1rem 0 .4rem}
+.panel input{width:100%;background:#0B0E11;color:var(--off-white);border:1px solid #33383E;border-radius:6px;
+  padding:.7rem;font-size:1.6rem;font-family:Oswald;letter-spacing:.4em;text-align:center}
+.panel input:focus{border-color:var(--gold);outline:none}
+.btns{display:flex;gap:.6rem;margin-top:1rem}
+.btns button,.panel .link{flex:1;font-family:Oswald;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  border-radius:6px;padding:.75rem;font-size:.95rem;cursor:pointer;border:1px solid var(--smoke);background:transparent;color:var(--off-white)}
+.btns .danger{background:#FF4A3D;border-color:#FF4A3D;color:#000}
+.btns button:disabled{opacity:.4;cursor:default}
+.panel .link{display:block;width:100%;margin-top:.8rem;border:none;color:var(--smoke);font-size:.8rem}
+.amsg{min-height:1.2rem;font-size:.85rem;margin-top:.8rem;color:var(--smoke)}
+.amsg.bad{color:#FF4A3D}
+.amsg.good{color:#35D07F}
 @media (max-width:1100px){main{grid-template-columns:1fr 1fr}.col.qr{grid-column:1/-1}}
 </style>
 </head>
@@ -59,13 +85,14 @@ footer .right{margin-left:auto}
   <span class="app">Dispatch — Live Board</span>
   <span class="live"><span class="dot"></span><span id="status">Updating</span></span>
 </header>
+<div class="final-banner">Final results &mdash; thanks for playing</div>
 
 <main>
   <div class="col qr">
     <div class="card" style="align-items:flex-start">
       <div id="qrbox"></div>
-      <div class="scan">Scan to play</div>
-      <p class="scanp">Route the trains. Don't crash. Your score posts to this board under your school.</p>
+      <div class="scan" id="scanTitle">Scan to play</div>
+      <p class="scanp" id="scanText">Route the trains. Don't crash. Your score posts to this board under your school.</p>
       <div class="rule"></div>
       <p class="scanp" style="font-size:.8rem">Software that keeps trains where they belong is a real job here. This is a small version of it.</p>
     </div>
@@ -94,6 +121,23 @@ footer .right{margin-left:auto}
   <span class="right" id="clock"></span>
 </footer>
 
+<!-- Staff panel: tap the HERZOG logo 5 times. The code is checked by the
+     backend, never in this page. -->
+<div class="admin" id="admin" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="adminTitle">
+    <h2 id="adminTitle">Staff controls</h2>
+    <div class="sub" id="adminState">Event is open</div>
+    <label for="adminCode">6-digit code</label>
+    <input id="adminCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
+    <div class="btns">
+      <button id="endBtn" class="danger">End event</button>
+      <button id="reopenBtn">Reopen</button>
+    </div>
+    <div class="amsg" id="adminMsg" role="status"></div>
+    <button class="link" id="adminClose">Close</button>
+  </div>
+</div>
+
 <script>
 /* ============================================================
    SET THESE BEFORE THE EVENT
@@ -106,7 +150,7 @@ var GAME_URL = "PASTE_THE_PUBLIC_URL_OF_THE_GAME_HERE";
 (function(){
 "use strict";
 var POLL_MS=8000, ROTATE_MS=9000;
-var schools=[], rotateIdx=0;
+var schools=[], rotateIdx=0, eventOpen=true;
 
 new QRCode(document.getElementById("qrbox"),{
   text:GAME_URL, width:280, height:280,
@@ -140,16 +184,29 @@ function paintSchool(){
   document.getElementById("bySchool").innerHTML=rowsHtml(s.top,false);
 }
 
+function apiReady(){ return !!API_URL&&API_URL.indexOf("PASTE_")!==0; }
+
+function paintOpen(open){
+  eventOpen=open;
+  document.body.classList.toggle("closed",!open);
+  document.getElementById("scanTitle").textContent=open?"Scan to play":"Thanks for playing";
+  document.getElementById("scanText").textContent=open
+    ?"Route the trains. Don't crash. Your score posts to this board under your school."
+    :"The event is over and these scores are final.";
+  document.getElementById("adminState").textContent=open?"Event is open":"Event is over — scores are final";
+}
+
 function tick(){
-  if(!API_URL||API_URL.indexOf("PASTE_")===0){
+  if(!apiReady()){
     document.getElementById("status").textContent="Not connected";
     return;
   }
-  fetch(API_URL+"?action=board&t="+Date.now())
+  fetch(API_URL+"?action=board&t="+Date.now(),{cache:"no-store"})
     .then(function(r){return r.json();})
     .then(function(d){
       if(!d||!d.ok) throw 0;
-      document.getElementById("status").textContent="Live";
+      paintOpen(d.open!==false);
+      document.getElementById("status").textContent=d.open===false?"Final":"Live";
       document.getElementById("overall").innerHTML=rowsHtml(d.board.overall,true);
       document.getElementById("count").textContent=d.board.players;
       schools=d.board.schools||[];
@@ -164,6 +221,67 @@ function clock(){
   document.getElementById("clock").textContent=
     n.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
 }
+
+/* ---------- staff panel ---------- */
+var taps=[], armed=false;
+var panel=document.getElementById("admin"), codeEl=document.getElementById("adminCode");
+var endBtn=document.getElementById("endBtn"), reopenBtn=document.getElementById("reopenBtn");
+var msgEl=document.getElementById("adminMsg");
+
+function msg(text,kind){ msgEl.textContent=text; msgEl.className="amsg"+(kind?" "+kind:""); }
+function openPanel(){
+  panel.hidden=false; codeEl.value=""; msg(""); disarm();
+  setTimeout(function(){ codeEl.focus(); },50);
+}
+function closePanel(){ panel.hidden=true; disarm(); }
+function disarm(){ armed=false; endBtn.textContent="End event"; }
+
+document.querySelector(".logo").addEventListener("click",function(){
+  var now=Date.now();
+  taps=taps.filter(function(t){ return now-t<4000; });
+  taps.push(now);
+  if(taps.length>=5){ taps=[]; openPanel(); }
+});
+document.getElementById("adminClose").addEventListener("click",closePanel);
+panel.addEventListener("click",function(e){ if(e.target===panel) closePanel(); });
+document.addEventListener("keydown",function(e){ if(e.key==="Escape"&&!panel.hidden) closePanel(); });
+codeEl.addEventListener("input",function(){ codeEl.value=codeEl.value.replace(/\D/g,"").slice(0,6); });
+
+var ADMIN_ERRORS={
+  bad_code:"Wrong code.",
+  locked:"Too many wrong codes. Locked for 15 minutes.",
+  no_code:"No ADMIN_CODE set in the script's properties. See SETUP.md."
+};
+
+function sendAdmin(op){
+  var code=codeEl.value;
+  if(!/^\d{6}$/.test(code)) return msg("Enter the 6-digit code.","bad");
+  if(!apiReady()) return msg("API_URL isn't set in this page.","bad");
+  endBtn.disabled=reopenBtn.disabled=true;
+  msg("Sending…");
+  fetch(API_URL,{method:"POST",body:JSON.stringify({action:"admin",op:op,code:code}),cache:"no-store"})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){
+        paintOpen(d.open);
+        msg(d.open?"Event reopened. Phones pick it up within about a minute.":"Event ended. Phones switch to final scores within about a minute.","good");
+        codeEl.value="";
+        tick();
+      }else{
+        var m=ADMIN_ERRORS[d.error]||"Didn't work ("+d.error+").";
+        if(d.error==="bad_code"&&typeof d.left==="number") m+=" "+d.left+" tries left before a 15-minute lockout.";
+        msg(m,"bad");
+      }
+    })
+    .catch(function(){ msg("Couldn't reach the backend. Try again.","bad"); })
+    .then(function(){ endBtn.disabled=reopenBtn.disabled=false; disarm(); });
+}
+// Two taps to end, so a stray click can't close the event.
+endBtn.addEventListener("click",function(){
+  if(!armed){ armed=true; endBtn.textContent="Tap again to confirm"; return; }
+  sendAdmin("close");
+});
+reopenBtn.addEventListener("click",function(){ sendAdmin("reopen"); });
 
 tick(); clock();
 setInterval(tick,POLL_MS);
