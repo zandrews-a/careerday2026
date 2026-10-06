@@ -218,8 +218,13 @@ var SIG={
   R:{lane:"R",dist:distAtY(LANE.R,225),green:true}
 };
 SIG.L.pos=pointAt(LANE.L,SIG.L.dist); SIG.R.pos=pointAt(LANE.R,SIG.R.dist);
-var SWITCH_DIST={L:LANE.L.len,R:LANE.R.len};
-var SWITCH={x:210,y:480};
+/* A train commits to a yard where the tails visibly split (y~520), not where
+   the lanes merge (y=480). Committing at the merge made fast trains lock in
+   while they still looked like they were on the shared straight, so players
+   setting the switch for "this" train were really setting it for the next. */
+var SPLIT_OFFSET=40;
+var SWITCH_DIST={L:LANE.L.len+SPLIT_OFFSET,R:LANE.R.len+SPLIT_OFFSET};
+var SWITCH={x:210,y:480+SPLIT_OFFSET};
 
 /* ---------- on-canvas tap regions ----------
    Hit boxes are deliberately far larger than the artwork they cover so a
